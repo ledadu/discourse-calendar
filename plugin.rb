@@ -616,4 +616,32 @@ after_initialize do
       end
     end
   end
+
+  # TODO(Roman): Remove #respond_to? after the 2.8 release.
+  if respond_to?(:register_notification_consolidation_plan)
+    query = ->(notifications, data) do
+      notifications
+        .where("data::json ->> 'topic_title' = ?", data[:topic_title].to_s)
+        .where("data::json ->> 'message' = ?", data[:message].to_s)
+    end
+
+    reminders_consolidation_plan = Notifications::ConsolidateNotifications.new(
+      from: Notification.types[:event_reminder],
+      to: Notification.types[:event_reminder],
+      threshold: 1,
+      unconsolidated_query_blk: query,
+      consolidated_query_blk: query
+    )
+
+    invitation_consolidation_plan = Notifications::ConsolidateNotifications.new(
+      from: Notification.types[:event_invitation],
+      to: Notification.types[:event_invitation],
+      threshold: 1,
+      unconsolidated_query_blk: query,
+      consolidated_query_blk: query
+    )
+
+    register_notification_consolidation_plan(reminders_consolidation_plan)
+    register_notification_consolidation_plan(invitation_consolidation_plan)
+  end
 end
