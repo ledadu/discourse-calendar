@@ -115,7 +115,8 @@ module DiscoursePostEvent
     end
 
     def filtered_events_params
-      params.permit(:post_id, :category_id, :include_subcategories)
+      # Http params permited
+      params.permit(:post_id, :category_id, :include_subcategories, :after, :before, :deleted)
     end
   end
 end
