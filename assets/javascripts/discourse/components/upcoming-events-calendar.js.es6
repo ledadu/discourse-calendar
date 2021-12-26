@@ -48,7 +48,7 @@ export default Component.extend({
         timeZone: 'local',
         locale: 'fr',
         displayEventEnd: false,
-        height: 725,
+        height: window.innerHeight - 200,
         headerToolbar: {
             left: 'prev,next today',
             center: 'title',
