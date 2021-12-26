@@ -319,7 +319,7 @@ function initializeDiscourseCalendar(api) {
             $startsTime.html(start.toLocaleTimeString());
 
             $endsDate.html(end ? end.toLocaleDateString() : "");
-            $endsTime.html(end ? start.toLocaleTimeString() : "");
+            $endsTime.html(end ? end.toLocaleTimeString() : "");
 
             $startsTime.toggle(!event.allDay);
 
