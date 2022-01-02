@@ -1,3 +1,11 @@
+  .mobile-view {
+    .calendar {
+        .fc-toolbar{
+            display: block;
+        }
+    }
+  }
+
 .calendar {
     .fc-event-title {
       overflow: hidden;

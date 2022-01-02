@@ -37,7 +37,6 @@ function loadFullCalendar() {
   });
 }
 
-
 function initializeDiscourseCalendar(api) {
   let _topicController;
   const siteSettings = api.container.lookup("site-settings:main");
@@ -46,17 +45,12 @@ function initializeDiscourseCalendar(api) {
   const site = api.container.lookup("site:main");
   const isMobileView = site && site.mobileView;
 
-  let selector = `.${outletName}-outlet`;
-  if (outletName === "before-topic-list-body") {
-    selector = `.topic-list:not(.shared-drafts) .${outletName}-outlet`;
-  }
-
-  // selector = '.dismiss-container-top';
-  selector = '.before-topic-list-body-outlet.category-calendar';
+  const selector = outletName === "before-topic-list-body"
+    ? '.before-topic-list-outlet'
+    : `.${outletName}-outlet`;
 
   api.onPageChange((url, title) => {
-    // const $calendarContainer = $(`${selector}.category-calendar`);
-    const $calendarContainer = $(selector);
+    const $calendarContainer = $(`${selector}.category-calendar`);
     if (!$calendarContainer.length) return;
     $calendarContainer.hide();
 
@@ -266,11 +260,6 @@ function initializeDiscourseCalendar(api) {
       ".discourse-calendar-header > .discourse-calendar-title"
     );
 
-    const defaultView = escapeExpression(
-      $calendar.attr("data-calendar-default-view") ||
-        (isMobileView ? "listNextYear" : "month")
-    );
-
     const showAddToCalendar =
       $calendar.attr("data-calendar-show-add-to-calendar") !== "false";
 
@@ -291,6 +280,7 @@ function initializeDiscourseCalendar(api) {
         weekNumbers: true,
         navLinks: true, // can click day/week names to navigate views
         dayMaxEvents: true, // allow "more" link when too many events
+        initialView: isMobileView ? "listMonth" : "dayGridMonth",
         /*
         datesRender: (info) => {
           if (showAddToCalendar) {
