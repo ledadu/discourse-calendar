@@ -72,7 +72,6 @@ const calendarRule = {
   tag: "calendar",
 
   before: function (state, info) {
-    console.log('---------info-------', info);
 
     // Open div.discourse-calendar-wrap
     let wrapperDivToken = state.push("div_calendar_wrap", "div", 1);

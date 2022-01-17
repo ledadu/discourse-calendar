@@ -40,6 +40,8 @@ export default Component.extend({
 
     const calendarNode = $calendar[0];
     const tooltipNode = $tooltip[0];
+    const showAddToCalendar =
+      $calendar.attr("data-calendar-show-add-to-calendar") !== "false";
 
     $calendar.html('');
 
@@ -57,15 +59,14 @@ export default Component.extend({
         weekNumbers: true,
         navLinks: true, // can click day/week names to navigate views
         dayMaxEvents: true, // allow "more" link when too many events
-        /*
-        datesRender: (info) => {
+        eventDidMount: (info) => {
           if (showAddToCalendar) {
-            _insertAddToCalendarLinks(info);
+            this._insertAddToCalendarLinks(info);
           }
 
-          $calendarTitle.innerText = info.view.title;
+          // $calendarTitle.innerText = info.view.title;
         },
-        */
+
         eventMouseEnter: function({event, el}) {
             const { start, end, title } = event;
             const $title                = $('.title', $tooltipContent);
@@ -76,7 +77,7 @@ export default Component.extend({
             const $startsDate           = $('.date', $starts);
             const $startsTime           = $('.time', $starts);
 
-            const eventnode             = $('.fc-event-title', el)[0];
+            const eventNode             = $('.fc-event-title, .fc-list-event-title > a', el)[0];
 
             $title.html(title);
             $tooltipContent.toggleClass('no-title', !title);
@@ -92,7 +93,7 @@ export default Component.extend({
             $tooltipContent.toggleClass('only-first-date', !end);
 
             $tooltip.show();
-            this.tooltip = new window.Popper.createPopper(eventnode, tooltipNode, {
+            this.tooltip = new window.Popper.createPopper(eventNode, tooltipNode, {
                 placement: 'top',
                 modifiers: [
                     {
@@ -123,6 +124,56 @@ export default Component.extend({
 
       this._calendar.render();
     });
+  },
+
+  _insertAddToCalendarLinks(info) {
+    if (info.view.type !== "listMonth") return;
+    this._insertAddToCalendarLinkForEvent(info);
+  },
+
+  _insertAddToCalendarLinkForEvent(info) {
+    const { event, el } = info;
+    const eventTitle = event.title;
+    let startDate = event.start;
+    let endDate = event.end;
+
+    endDate = endDate
+      ? this._formatDateForGoogleApi(endDate, event.allDay)
+      : this._endDateForAllDayEvent(startDate, event.allDay);
+    startDate = this._formatDateForGoogleApi(startDate, event.allDay);
+
+    const link = document.createElement("a");
+    const title = I18n.t("discourse_calendar.add_to_calendar");
+    link.title = title;
+    link.appendChild(document.createTextNode(title));
+    link.href = `
+      http://www.google.com/calendar/event?action=TEMPLATE&text=${encodeURIComponent(
+        eventTitle
+      )}&dates=${startDate}/${endDate}&details=${encodeURIComponent(
+      event.extendedProps.description
+    )}`;
+    link.target = "_blank";
+    link.classList.add("fc-list-item-add-to-calendar");
+    const rowNode = el.closest('.fc-list-event').previousSibling;
+    console.log("🚀 ~ _insertAddToCalendarLinkForEvent ~ rowNode", rowNode);
+    el.querySelector(".fc-list-event-title").appendChild(link);
+    el.onclick  = (e) => {
+        e.stopPropagation();
+    }
+  },
+
+   _formatDateForGoogleApi(date, allDay = false) {
+    if (!allDay) return date.toISOString().replace(/-|:|\.\d\d\d/g, "");
+
+    return moment(date).utc().format("YYYYMMDD");
+  },
+
+  _endDateForAllDayEvent(startDate, allDay) {
+    const unit = allDay ? "days" : "hours";
+    return this._formatDateForGoogleApi(
+      moment(startDate).add(1, unit).toDate(),
+      allDay
+    );
   },
 
   _loadCalendar() {

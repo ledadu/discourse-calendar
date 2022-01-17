@@ -207,7 +207,8 @@ function initializeDiscourseCalendar(api) {
           extendedProps: {
             postNumber: rawEvent.post.post_number,
             postUrl: rawEvent.post.url,
-          }
+          },
+          url: rawEvent.post.url,
         };
 
         // Add a events
@@ -281,15 +282,15 @@ function initializeDiscourseCalendar(api) {
         navLinks: true, // can click day/week names to navigate views
         dayMaxEvents: true, // allow "more" link when too many events
         initialView: isMobileView ? "listMonth" : "dayGridMonth",
-        /*
-        datesRender: (info) => {
+
+        eventDidMount: (info) => {
           if (showAddToCalendar) {
             _insertAddToCalendarLinks(info);
           }
 
-          $calendarTitle.innerText = info.view.title;
+          // $calendarTitle.innerText = info.view.title;
         },
-        */
+
         eventMouseEnter: function({event, el}) {
             const { start, end, title } = event;
             const $title                = $('.title', $tooltipContent);
@@ -300,7 +301,7 @@ function initializeDiscourseCalendar(api) {
             const $startsDate           = $('.date', $starts);
             const $startsTime           = $('.time', $starts);
 
-            const eventnode             = $('.fc-event-title', el)[0];
+            const eventNode             = $('.fc-event-title, .fc-list-event-title > a', el)[0];
 
             $title.html(title);
             $tooltipContent.toggleClass('no-title', !title);
@@ -316,7 +317,7 @@ function initializeDiscourseCalendar(api) {
             $tooltipContent.toggleClass('only-first-date', !end);
 
             $tooltip.show();
-            this.tooltip = new window.Popper.createPopper(eventnode, tooltipNode, {
+            this.tooltip = new window.Popper.createPopper(eventNode, tooltipNode, {
                 placement: 'top',
                 modifiers: [
                     {
@@ -633,26 +634,20 @@ function initializeDiscourseCalendar(api) {
   }
 
   function _insertAddToCalendarLinks(info) {
-    if (info.view.type !== "listNextYear") return;
-
-    const eventSegments = info.view.eventRenderer.segs;
-    const eventSegmentDefMap = _eventSegmentDefMap(info);
-
-    for (const event of eventSegments) {
-      _insertAddToCalendarLinkForEvent(event, eventSegmentDefMap);
-    }
+    if (info.view.type !== "listMonth") return;
+    _insertAddToCalendarLinkForEvent(info);
   }
 
-  function _insertAddToCalendarLinkForEvent(event, eventSegmentDefMap) {
-    const eventTitle = event.eventRange.def.title;
-    let map = eventSegmentDefMap[event.eventRange.def.defId];
-    let startDate = map.start;
-    let endDate = map.end;
+  function _insertAddToCalendarLinkForEvent(info) {
+    const { event, el } = info;
+    const eventTitle = event.title;
+    let startDate = event.start;
+    let endDate = event.end;
 
     endDate = endDate
-      ? _formatDateForGoogleApi(endDate, event.eventRange.def.allDay)
-      : _endDateForAllDayEvent(startDate, event.eventRange.def.allDay);
-    startDate = _formatDateForGoogleApi(startDate, event.eventRange.def.allDay);
+      ? _formatDateForGoogleApi(endDate, event.allDay)
+      : _endDateForAllDayEvent(startDate, event.allDay);
+    startDate = _formatDateForGoogleApi(startDate, event.allDay);
 
     const link = document.createElement("a");
     const title = I18n.t("discourse_calendar.add_to_calendar");
@@ -662,11 +657,16 @@ function initializeDiscourseCalendar(api) {
       http://www.google.com/calendar/event?action=TEMPLATE&text=${encodeURIComponent(
         eventTitle
       )}&dates=${startDate}/${endDate}&details=${encodeURIComponent(
-      event.eventRange.def.extendedProps.description
+      event.extendedProps.description
     )}`;
     link.target = "_blank";
     link.classList.add("fc-list-item-add-to-calendar");
-    event.el.querySelector(".fc-list-item-title").appendChild(link);
+    const rowNode = el.closest('.fc-list-event').previousSibling;
+    console.log("🚀 ~ _insertAddToCalendarLinkForEvent ~ rowNode", rowNode);
+    el.querySelector(".fc-list-event-title").appendChild(link);
+    el.onclick  = (e) => {
+        e.stopPropagation();
+    }
   }
 
   function _formatDateForGoogleApi(date, allDay = false) {
@@ -683,14 +683,6 @@ function initializeDiscourseCalendar(api) {
     );
   }
 
-  function _eventSegmentDefMap(info) {
-    let map = {};
-
-    for (let event of info.view.calendar.getEvents()) {
-      map[event._instance.defId] = { start: event.start, end: event.end };
-    }
-    return map;
-  }
 }
 
 export default {
