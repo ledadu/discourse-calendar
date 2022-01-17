@@ -8,6 +8,7 @@ import { withPluginApi } from "discourse/lib/plugin-api";
 import { ajax } from "discourse/lib/ajax";
 import { hidePopover, showPopover } from "discourse/lib/d-popover";
 import Category from "discourse/models/category";
+import { formatEventName } from "discourse/plugins/discourse-calendar/helpers/format-event-name";
 
 // https://stackoverflow.com/a/16348977
 /* eslint-disable */
@@ -201,7 +202,7 @@ function initializeDiscourseCalendar(api) {
       // Iterate events
       events.forEach(rawEvent => {
         const event = {
-          title: rawEvent.name || rawEvent.post.topic.title,
+          title: formatEventName(rawEvent),
           start: rawEvent.starts_at,
           end: rawEvent.ends_at,
           extendedProps: {
