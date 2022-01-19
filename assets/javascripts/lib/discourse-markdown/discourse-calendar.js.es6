@@ -8,6 +8,11 @@ const addCalendarTooltipDivToState = (state) => {
         let tooltipContentDivToken = state.push("div_tooltip_content_open", "div", 1);
         tooltipContentDivToken.attrs = [["class", "tooltip-content"]];
 
+            // Open/Close div.category
+            let tooltipCategoryDivToken = state.push("div_category_open", "div", 1);
+            tooltipCategoryDivToken.attrs = [["class", "category"]];
+            state.push("div_category_close", "div", -1);
+
             // Open/Close div.title
             let tooltipTitleDivToken = state.push("div_title_open", "div", 1);
             tooltipTitleDivToken.attrs = [["class", "title"]];
@@ -165,6 +170,7 @@ export function setup(helper) {
     "div.discourse-calendar-header",
     "div.calendar-tooltip",
     "div.tooltip-content",
+    "div.category",
     "div.starts",
     "div.date-to",
     "div.ends",

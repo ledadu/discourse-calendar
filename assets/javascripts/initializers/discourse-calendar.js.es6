@@ -201,15 +201,21 @@ function initializeDiscourseCalendar(api) {
 
       // Iterate events
       events.forEach(rawEvent => {
+        const { post } = rawEvent;
+        const { topic } = post;
+        const { category_id } = topic;
+        const category = Category.findById(category_id);
         const event = {
           title: formatEventName(rawEvent),
           start: rawEvent.starts_at,
           end: rawEvent.ends_at,
           extendedProps: {
-            postNumber: rawEvent.post.post_number,
-            postUrl: rawEvent.post.url,
+            post,
+            topic,
+            category
           },
           url: rawEvent.post.url,
+          color: `#${category.color}`
         };
 
         // Add a events
@@ -285,6 +291,14 @@ function initializeDiscourseCalendar(api) {
         initialView: isMobileView ? "listMonth" : "dayGridMonth",
 
         eventDidMount: (info) => {
+          const { el } = info;
+          const  timeNode = el.querySelector('.fc-event-time');
+          const dotNode = el.querySelector('.fc-daygrid-event-dot');
+          const { style } = dotNode || el;
+          const { borderColor } = style || {};
+          if (borderColor) {
+            timeNode.style.backgroundColor = borderColor;
+          }
           if (showAddToCalendar) {
             _insertAddToCalendarLinks(info);
           }
@@ -293,16 +307,25 @@ function initializeDiscourseCalendar(api) {
         },
 
         eventMouseEnter: function({event, el}) {
-            const { start, end, title } = event;
-            const $title                = $('.title', $tooltipContent);
-            const $ends                 = $('.ends', $tooltipContent);
-            const $endsDate             = $('.date', $ends);
-            const $endsTime             = $('.time', $ends);
-            const $starts               = $('.starts', $tooltipContent);
-            const $startsDate           = $('.date', $starts);
-            const $startsTime           = $('.time', $starts);
+            const {
+                start, end, title, backgroundColor, extendedProps
+            }                 = event;
+            const $category   = $('.category', $tooltipContent);
+            const $title      = $('.title', $tooltipContent);
+            const $ends       = $('.ends', $tooltipContent);
+            const $endsDate   = $('.date', $ends);
+            const $endsTime   = $('.time', $ends);
+            const $starts     = $('.starts', $tooltipContent);
+            const $startsDate = $('.date', $starts);
+            const $startsTime = $('.time', $starts);
 
-            const eventNode             = $('.fc-event-title, .fc-list-event-title > a', el)[0];
+            const eventNode   = $('.fc-event-title, .fc-list-event-title > a', el)[0];
+
+            const { category } = extendedProps;
+
+            if (category) {
+                $category.html(category.name);
+            }
 
             $title.html(title);
             $tooltipContent.toggleClass('no-title', !title);
@@ -329,6 +352,7 @@ function initializeDiscourseCalendar(api) {
                     },
                 ],
             });
+            tooltipNode.style.backgroundColor = backgroundColor;
         },
         eventMouseLeave: function({el}) {
             $tooltip.hide();
@@ -663,7 +687,6 @@ function initializeDiscourseCalendar(api) {
     link.target = "_blank";
     link.classList.add("fc-list-item-add-to-calendar");
     const rowNode = el.closest('.fc-list-event').previousSibling;
-    console.log("🚀 ~ _insertAddToCalendarLinkForEvent ~ rowNode", rowNode);
     el.querySelector(".fc-list-event-title").appendChild(link);
     el.onclick  = (e) => {
         e.stopPropagation();

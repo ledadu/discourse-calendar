@@ -5,6 +5,7 @@ import loadScript from "discourse/lib/load-script";
 import Component from "@ember/component";
 import { schedule } from "@ember/runloop";
 import getURL from "discourse-common/lib/get-url";
+import Category from "discourse/models/category";
 
 export default Component.extend({
   tagName: "",
@@ -60,6 +61,14 @@ export default Component.extend({
         navLinks: true, // can click day/week names to navigate views
         dayMaxEvents: true, // allow "more" link when too many events
         eventDidMount: (info) => {
+          const { el } = info;
+          const  timeNode = el.querySelector('.fc-event-time');
+          const dotNode = el.querySelector('.fc-daygrid-event-dot');
+          const { style } = dotNode || el;
+          const { borderColor } = style || {};
+          if (borderColor) {
+            timeNode.style.backgroundColor = borderColor;
+          }
           if (showAddToCalendar) {
             this._insertAddToCalendarLinks(info);
           }
@@ -68,16 +77,24 @@ export default Component.extend({
         },
 
         eventMouseEnter: function({event, el}) {
-            const { start, end, title } = event;
-            const $title                = $('.title', $tooltipContent);
-            const $ends                 = $('.ends', $tooltipContent);
-            const $endsDate             = $('.date', $ends);
-            const $endsTime             = $('.time', $ends);
-            const $starts               = $('.starts', $tooltipContent);
-            const $startsDate           = $('.date', $starts);
-            const $startsTime           = $('.time', $starts);
+            const {
+                start, end, title, backgroundColor, extendedProps
+            }                 = event;
+            const $category   = $('.category', $tooltipContent);
+            const $title      = $('.title', $tooltipContent);
+            const $ends       = $('.ends', $tooltipContent);
+            const $endsDate   = $('.date', $ends);
+            const $endsTime   = $('.time', $ends);
+            const $starts     = $('.starts', $tooltipContent);
+            const $startsDate = $('.date', $starts);
+            const $startsTime = $('.time', $starts);
 
             const eventNode             = $('.fc-event-title, .fc-list-event-title > a', el)[0];
+            const { category } = extendedProps;
+
+            if (category) {
+                $category.html(category.name);
+            }
 
             $title.html(title);
             $tooltipContent.toggleClass('no-title', !title);
@@ -104,6 +121,7 @@ export default Component.extend({
                     },
                 ],
             });
+            tooltipNode.style.backgroundColor = backgroundColor;
         },
         eventMouseLeave: function({el}) {
             $tooltip.hide();
@@ -113,12 +131,21 @@ export default Component.extend({
 
       (this.events || []).forEach((event) => {
         const { starts_at, ends_at, post } = event;
+        const { topic } = post;
+        const { category_id } = topic;
+        const category = Category.findById(category_id);
         // const duration = moment.duration(moment(ends_at).diff(moment(starts_at))).asDays();
         this._calendar.addEvent({
           title: formatEventName(event),
           start: starts_at,
           end: ends_at || starts_at,
           url: getURL(`/t/-/${post.topic.id}/${post.post_number}`),
+          color: `#${category.color}`,
+          extendedProps: {
+            post,
+            topic,
+            category
+          },
         });
       });
 
@@ -155,7 +182,6 @@ export default Component.extend({
     link.target = "_blank";
     link.classList.add("fc-list-item-add-to-calendar");
     const rowNode = el.closest('.fc-list-event').previousSibling;
-    console.log("🚀 ~ _insertAddToCalendarLinkForEvent ~ rowNode", rowNode);
     el.querySelector(".fc-list-event-title").appendChild(link);
     el.onclick  = (e) => {
         e.stopPropagation();
