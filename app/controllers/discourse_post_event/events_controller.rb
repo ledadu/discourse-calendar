@@ -126,6 +126,8 @@ module DiscoursePostEvent
         :include_expired,
         :limit,
         :before,
+        :after,
+        :deleted
       )
     end
   end

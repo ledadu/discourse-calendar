@@ -17,9 +17,15 @@ import { isNotFullDayEvent } from "../lib/guess-best-date-format";
 import { buildPopover, destroyPopover } from "../lib/popover";
 
 function loadFullCalendar() {
-  return loadScript(
-    "/plugins/discourse-calendar/javascripts/fullcalendar-with-moment-timezone.min.js"
-  );
+  return new Promise((resolve) => {
+    loadScript(
+    "/plugins/discourse-calendar/javascripts/fullcalendar-v5.min.js",
+    ).then(() => {
+      loadScript("/plugins/discourse-calendar/javascripts/popper.min.js").then(() => {
+        resolve();
+      });
+    });
+  });
 }
 
 function getCurrentBcp47Locale() {
@@ -51,25 +57,18 @@ function initializeDiscourseCalendar(api) {
   const site = api.container.lookup("service:site");
   const isMobileView = site && site.mobileView;
 
-  let selector = `.${outletName}-outlet`;
-  if (outletName === "before-topic-list-body") {
-    selector = `.topic-list:not(.shared-drafts) .${outletName}-outlet`;
-  }
+  const selector = outletName;
 
-  api.onPageChange((url) => {
-    const categoryCalendarNode = document.querySelector(
-      `${selector}.category-calendar`
-    );
-    if (categoryCalendarNode) {
-      categoryCalendarNode.innerHTML = "";
-    }
+  api.onPageChange((url, title) => {
+    const $selector = $(selector);
+    if (!$selector.length) return;
 
-    const categoryEventNode = document.getElementById(
-      "category-events-calendar"
-    );
-    if (categoryEventNode) {
-      categoryEventNode.innerHTML = "";
+    if ($(`${selector} > .category-calendar`).length === 0) {
+        $selector.prepend('<div class="category-calendar"></div>');
     }
+    const $calendarContainer = $(`${selector} > .category-calendar`);
+
+    $calendarContainer.hide();
 
     const browsedCategory = Category.findBySlugPathWithID(url.split("?")[0]);
     if (!browsedCategory) {
@@ -95,11 +94,18 @@ function initializeDiscourseCalendar(api) {
       browsedCategory.id.toString()
     );
 
-    if (categoryCalendarNode && categorySetting && categorySetting.postId) {
-      const postId = categorySetting.postId;
-      categoryCalendarNode.innerHTML =
-        '<div class="calendar"><div class="spinner medium"></div></div>';
+    // Manage calendar with postId in categorySetting (extension setting)
+    if (categorySetting && categorySetting.postId) {
+    $calendarContainer.show();
+    const postId = categorySetting.postId;
+    const $spinner = $(
+        '<div class="calendar"><div class="spinner medium"></div></div>'
+    );
+    $calendarContainer.html($spinner);
+    loadFullCalendar().then(() => {
+        const options = extractOptionalsCategorySettingOptions([`postId=${postId}`], categorySetting);
 
+    /*
       loadFullCalendar().then(() => {
         const options = [`postId=${postId}`];
 
@@ -231,13 +237,56 @@ function initializeDiscourseCalendar(api) {
                 backgroundColor,
                 classNames,
               });
+        */
+        events[Object.keys(events)[0]].forEach((event) => {
+            const { starts_at, ends_at, post } = event;
+            calendar.addEvent({
+            title: formatEventName(event),
+            start: starts_at,
+            end: ends_at || starts_at,
+            allDay: !isNotFullDayEvent(moment(starts_at), moment(ends_at)),
+            url: getURL(`/t/-/${post.topic.id}/${post.post_number}`),
             });
+        });
 
-            fullCalendar.render();
-          });
+        calendar.render();
+        });
+    }
+
+      // Manage calendar with eventsFromCategory in categorySetting (extension setting)
+      if (categorySetting && categorySetting.eventsFromCategory) {
+        const { eventsFromCategory } = categorySetting;
+        // Show container
+        $calendarContainer.show();
+
+        // Add a loader
+        const $spinner = $(
+          '<div class="calendar"><div class="spinner medium"></div></div>'
+        );
+        $calendarContainer.html($spinner);
+
+        // Load fullcalendar.io script
+        loadFullCalendar().then(() => {
+            const options = extractOptionalsCategorySettingOptions([`eventsFromCategory=${eventsFromCategory}`], categorySetting);
+
+            const rawCalendar = `[calendar ${options.join(" ")}]\n[/calendar]`;
+            // Cooking calendar
+            const cookRaw = cookAsync(rawCalendar);
+            // Fetch event from category id
+            const fetchEvents = ajax(`/discourse-post-event/events.json?category_id=${eventsFromCategory}&include_subcategories=true`);
+
+            // Execute cooking and fetch events
+            Promise.all([cookRaw, fetchEvents]).then((results) => {
+              const cooked = results[0];
+              const { events } = results[1];
+              const $cooked = $(cooked.string);
+
+              // Add calendar to DOM
+              $calendarContainer.html($cooked);
+              renderCalendarFromCategoryEvents($(".calendar", $cooked), events);
+            })
         });
       }
-    }
   });
 
   api.decorateCooked(($elem, helper) => attachCalendar($elem, helper), {
@@ -316,19 +365,80 @@ function initializeDiscourseCalendar(api) {
     );
   }
 
-  function render($calendar, post) {
+  /**
+   * Extract optionals options from categorySetting ("calendar categories" in extension settings)
+   *
+   * @return array
+  */
+  function extractOptionalsCategorySettingOptions(options, categorySetting) {
+    const optionals = ["weekends", "tzPicker", "defaultView"];
+
+    optionals.forEach((optional) => {
+      if (isPresent(categorySetting[optional])) {
+        options.push(
+          `${optional}=${escapeExpression(categorySetting[optional])}`
+        );
+      }
+    });
+
+    return options;
+  }
+
+  /**
+   * Render a calendar with event from a category
+   *
+   * @returns Void
+   */
+  function renderCalendarFromCategoryEvents($calendar, events) {
+
+      $calendar = $calendar.empty();
+      const timezone = _getTimeZone($calendar, api.getCurrentUser());
+      // Instantiate fullcalendar.io
+      const calendar = _buildCalendar($calendar, timezone);
+
+      calendar.render();
+      _setupTimezonePicker(calendar, timezone);
+
+      // Iterate events
+      events.forEach(rawEvent => {
+        const { post } = rawEvent;
+        const { topic } = post;
+        const { category_id } = topic;
+        const category = Category.findById(category_id);
+        const event = {
+          title: formatEventName(rawEvent),
+          start: rawEvent.starts_at,
+          end: rawEvent.ends_at,
+          extendedProps: {
+            post,
+            topic,
+            category
+          },
+          url: rawEvent.post.url,
+          color: `#${category.color}`
+        };
+
+        // Add a events
+        calendar.addEvent(event);
+
+      });
+  }
+
+  function render($calendar, post, siteSettings) {
     $calendar = $calendar.empty();
 
     const timezone = _getTimeZone($calendar, api.getCurrentUser());
     const calendar = _buildCalendar($calendar, timezone);
     const isStatic = $calendar.attr("data-calendar-type") === "static";
     const fullDay = $calendar.attr("data-calendar-full-day") === "true";
+    const staticLines = getStaticLines(post);
+    // const isStatic = staticLines.length > 0;
 
     if (isStatic) {
       calendar.render();
-      _setStaticCalendarEvents(calendar, $calendar, post);
+      _setStaticCalendarEvents(calendar, $calendar, staticLines);
     } else {
-      _setDynamicCalendarEvents(calendar, post, fullDay, timezone);
+      _setDynamicCalendarEvents(calendar, post, fullDay, timezone, siteSettings);
       calendar.render();
       _setDynamicCalendarOptions(calendar, $calendar);
     }
@@ -361,14 +471,10 @@ function initializeDiscourseCalendar(api) {
       ".discourse-calendar-header > .discourse-calendar-title"
     );
 
-    const defaultView = escapeExpression(
-      $calendar.attr("data-calendar-default-view") ||
-        (isMobileView ? "listNextYear" : "month")
-    );
-
     const showAddToCalendar =
       $calendar.attr("data-calendar-show-add-to-calendar") !== "false";
 
+   /*
     return new window.FullCalendar.Calendar($calendar[0], {
       timeZone,
       timeZoneImpl: "moment-timezone",
@@ -410,6 +516,97 @@ function initializeDiscourseCalendar(api) {
         _setTimezoneOffset(info);
       },
     });
+    */
+
+    const $tooltip        = $('.calendar-tooltip');
+    const $tooltipContent = $('.tooltip-content');
+    const tooltipNode     = $tooltip[0];
+
+    return new window.FullCalendar.Calendar($calendar[0], {
+        timeZone: 'local',
+        locale: siteSettings.default_locale,
+        firstDay: siteSettings.default_locale === 'fr' ? 1 : 0,
+        displayEventEnd: false,
+        height: 725,
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay,listMonth'
+         },
+        weekNumbers: true,
+        navLinks: true, // can click day/week names to navigate views
+        dayMaxEvents: true, // allow "more" link when too many events
+        initialView: isMobileView ? "listMonth" : "dayGridMonth",
+
+        eventDidMount: (info) => {
+          const { el } = info;
+          const  timeNode = el.querySelector('.fc-event-time');
+          const dotNode = el.querySelector('.fc-daygrid-event-dot');
+          const { style } = dotNode || el;
+          const { borderColor } = style || {};
+          if (borderColor) {
+            timeNode.style.backgroundColor = borderColor;
+          }
+          if (showAddToCalendar) {
+            _insertAddToCalendarLinks(info);
+          }
+
+          // $calendarTitle.innerText = info.view.title;
+        },
+
+        eventMouseEnter: function({event, el}) {
+            const {
+                start, end, title, backgroundColor, extendedProps
+            }                 = event;
+            const $category   = $('.category', $tooltipContent);
+            const $title      = $('.title', $tooltipContent);
+            const $ends       = $('.ends', $tooltipContent);
+            const $endsDate   = $('.date', $ends);
+            const $endsTime   = $('.time', $ends);
+            const $starts     = $('.starts', $tooltipContent);
+            const $startsDate = $('.date', $starts);
+            const $startsTime = $('.time', $starts);
+
+            const eventNode   = $('.fc-event-title, .fc-list-event-title > a', el)[0];
+
+            const { category } = extendedProps;
+
+            if (category) {
+                $category.html(category.name);
+            }
+
+            $title.html(title);
+            $tooltipContent.toggleClass('no-title', !title);
+
+            $startsDate.html(start.toLocaleDateString());
+            $startsTime.html(start.toLocaleTimeString());
+
+            $endsDate.html(end ? end.toLocaleDateString() : "");
+            $endsTime.html(end ? end.toLocaleTimeString() : "");
+
+            $startsTime.toggle(!event.allDay);
+
+            $tooltipContent.toggleClass('only-first-date', !end);
+
+            $tooltip.show();
+            this.tooltip = new window.Popper.createPopper(eventNode, tooltipNode, {
+                placement: 'top',
+                modifiers: [
+                    {
+                    name: 'offset',
+                    options: {
+                        offset: [0, 8],
+                    },
+                    },
+                ],
+            });
+            tooltipNode.style.backgroundColor = backgroundColor;
+        },
+        eventMouseLeave: function({el}) {
+            $tooltip.hide();
+            this.tooltip = null;
+        },
+      });
   }
 
   function _orderByTz(a, b) {
@@ -436,6 +633,7 @@ function initializeDiscourseCalendar(api) {
     const time = html.attr("data-time");
     const timezone = html.attr("data-timezone");
     let dateTime = date;
+
     if (time) {
       dateTime = `${dateTime} ${time}`;
     }
@@ -443,6 +641,7 @@ function initializeDiscourseCalendar(api) {
     return {
       weeklyRecurring: html.attr("data-recurring") === "1.weeks",
       dateTime: moment.tz(dateTime, timezone || "Etc/UTC"),
+      timeString: time
     };
   }
 
@@ -470,7 +669,8 @@ function initializeDiscourseCalendar(api) {
         event.end = to.dateTime.add(1, "days").format(dateFormat);
         event.allDay = true;
       }
-    } else {
+    }
+    if (!from.timeString){
       event.allDay = true;
     }
 
@@ -486,23 +686,38 @@ function initializeDiscourseCalendar(api) {
     return event;
   }
 
-  function _setStaticCalendarEvents(calendar, $calendar, post) {
-    $(`<div>${post.cooked}</div>`)
-      .find('.calendar[data-calendar-type="static"] p')
-      .html()
-      .trim()
-      .split("<br>")
-      .forEach((line) => {
+  function getStaticLines(post) {
+    const html = $(`<div>${post.cooked}</div>`)
+        .find('.calendar p')
+        .html();
+
+    if (!html) {
+        return [];
+    }
+
+    return html.trim().split("<br>");
+  }
+
+
+  function _setStaticCalendarEvents(calendar, $calendar, staticLines) {
+
+    let lastLine = {};
+    staticLines.forEach((line, index) => {
         const html = $.parseHTML(line);
         const htmlDates = html.filter((h) =>
           $(h).hasClass("discourse-local-date")
         );
+        if (htmlDates.length === 0) {
+            lastLine = { line, index };
+            return;
+        }
 
         const from = _convertHtmlToDate($(htmlDates[0]));
         const to = _convertHtmlToDate($(htmlDates[1]));
 
         let event = _buildEventObject(from, to);
-        event.title = html[0].textContent.trim();
+        // Add previous line
+        event.title = lastLine.index === index -1 ? lastLine.line : "";
         calendar.addEvent(event);
       });
   }
@@ -521,32 +736,8 @@ function initializeDiscourseCalendar(api) {
         hiddenDays.split(",").map((d) => parseInt(d, 10))
       );
     }
-
-    calendar.setOption("eventClick", ({ event, jsEvent }) => {
-      destroyPopover();
-      const { htmlContent, postNumber, postUrl } = event.extendedProps;
-
-      if (postUrl) {
-        DiscourseURL.routeTo(postUrl);
-      } else if (postNumber) {
-        _topicController =
-          _topicController || api.container.lookup("controller:topic");
-        _topicController.send("jumpToPost", postNumber);
-      } else if (isMobileView && htmlContent) {
-        buildPopover(jsEvent, htmlContent);
-      }
-    });
-
-    calendar.setOption("eventMouseEnter", ({ event, jsEvent }) => {
-      destroyPopover();
-      const { htmlContent } = event.extendedProps;
-      buildPopover(jsEvent, htmlContent);
-    });
-
-    calendar.setOption("eventMouseLeave", () => {
-      destroyPopover();
-    });
   }
+
 
   function _buildEvent(detail) {
     const event = _buildEventObject(
@@ -554,12 +745,14 @@ function initializeDiscourseCalendar(api) {
         ? {
             dateTime: moment(detail.from),
             weeklyRecurring: detail.recurring === "1.weeks",
+            timeString: detail.from
           }
         : null,
       detail.to
         ? {
             dateTime: moment(detail.to),
             weeklyRecurring: detail.recurring === "1.weeks",
+            timeString: detail.to
           }
         : null
     );
@@ -665,6 +858,7 @@ function initializeDiscourseCalendar(api) {
     });
   }
 
+
   function _splitGroupEventByTimezone(detail, calendarTz) {
     const calendarUtcOffset = moment.tz(calendarTz).utcOffset();
     let timezonesOffsets = [];
@@ -749,7 +943,7 @@ function initializeDiscourseCalendar(api) {
     });
   }
 
-  function _setDynamicCalendarEvents(calendar, post, fullDay, calendarTz) {
+  function _setDynamicCalendarEvents(calendar, post, fullDay, calendarTz, siteSettings) {
     const groupedEvents = [];
     const calendarUtcOffset = moment.tz(calendarTz).utcOffset();
 
@@ -919,14 +1113,20 @@ function initializeDiscourseCalendar(api) {
       return;
     }
 
+/* new add !?
     const eventSegments = info.view.eventRenderer.segs;
     const eventSegmentDefMap = _eventSegmentDefMap(info);
 
     for (const event of eventSegments) {
       _insertAddToCalendarLinkForEvent(event, eventSegmentDefMap);
     }
+*/
+    if (info.view.type !== "listMonth") return;
+    _insertAddToCalendarLinkForEvent(info);
   }
 
+
+/*
   function _setTimezoneOffset(info) {
     if (
       !siteSettings.enable_timezone_offset_for_calendar_events ||
@@ -990,11 +1190,18 @@ function initializeDiscourseCalendar(api) {
     let map = eventSegmentDefMap[event.eventRange.def.defId];
     let startDate = map.start;
     let endDate = map.end;
+    */
+
+  function _insertAddToCalendarLinkForEvent(info) {
+    const { event, el } = info;
+    const eventTitle = event.title;
+    let startDate = event.start;
+    let endDate = event.end;
 
     endDate = endDate
-      ? _formatDateForGoogleApi(endDate, event.eventRange.def.allDay)
-      : _endDateForAllDayEvent(startDate, event.eventRange.def.allDay);
-    startDate = _formatDateForGoogleApi(startDate, event.eventRange.def.allDay);
+      ? _formatDateForGoogleApi(endDate, event.allDay)
+      : _endDateForAllDayEvent(startDate, event.allDay);
+    startDate = _formatDateForGoogleApi(startDate, event.allDay);
 
     const link = document.createElement("a");
     const title = I18n.t("discourse_calendar.add_to_calendar");
@@ -1004,11 +1211,15 @@ function initializeDiscourseCalendar(api) {
       http://www.google.com/calendar/event?action=TEMPLATE&text=${encodeURIComponent(
         eventTitle
       )}&dates=${startDate}/${endDate}&details=${encodeURIComponent(
-      event.eventRange.def.extendedProps.description
+      event.extendedProps.description
     )}`;
     link.target = "_blank";
     link.classList.add("fc-list-item-add-to-calendar");
-    event.el.querySelector(".fc-list-item-title").appendChild(link);
+    const rowNode = el.closest('.fc-list-event').previousSibling;
+    el.querySelector(".fc-list-event-title").appendChild(link);
+    el.onclick  = (e) => {
+        e.stopPropagation();
+    }
   }
 
   function _formatDateForGoogleApi(date, allDay = false) {
@@ -1027,14 +1238,6 @@ function initializeDiscourseCalendar(api) {
     );
   }
 
-  function _eventSegmentDefMap(info) {
-    let map = {};
-
-    for (let event of info.view.calendar.getEvents()) {
-      map[event._instance.defId] = { start: event.start, end: event.end };
-    }
-    return map;
-  }
 }
 
 export default {
